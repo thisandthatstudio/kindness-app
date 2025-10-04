@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "차카게살자",
+    "slug": "kindness-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "kindnessapp",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.kindnessapp"
+    },
+    "android": {
+      "package": "com.yourcompany.kindnessapp"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "5fedc720-135e-430a-9c3d-b592d4d91260"
+      }
+    }
+  }
+}
