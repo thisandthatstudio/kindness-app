@@ -4,16 +4,39 @@
     "slug": "kindness-app",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "kindnessapp",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.kindnessapp"
+      "bundleIdentifier": "com.yourcompany.kindnessapp",
+      "buildNumber": "1"
     },
     "android": {
-      "package": "com.yourcompany.kindnessapp"
+      "package": "com.yourcompany.kindnessapp",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
     },
+    "web": {
+      "favicon": "./assets/images/favicon.png",
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router"
+    ],
     "extra": {
+      "router": {
+        "origin": false
+      },
       "eas": {
         "projectId": "5fedc720-135e-430a-9c3d-b592d4d91260"
       }

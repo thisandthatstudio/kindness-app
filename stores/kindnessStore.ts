@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import db from '../lib/db/database';
 import { Kindness } from '../lib/types';
 import { calculateStreak, getToday } from '../lib/utils';
