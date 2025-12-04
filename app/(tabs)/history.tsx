@@ -5,19 +5,31 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  FlatList,
+  Image,
 } from 'react-native';
 import useKindnessStore from '../../stores/kindnessStore';
 import { formatDate, getToday } from '../../lib/utils';
 import { PRESET_ACTS } from '../../lib/presets/kindness';
+import i18n, { t } from '../../lib/i18n';
+
+// 요일 배열을 직접 정의
+const WEEK_DAYS: Record<string, string[]> = {
+  ko: ['일', '월', '화', '수', '목', '금', '토'],
+  en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  zh: ['日', '一', '二', '三', '四', '五', '六'],
+};
 
 export default function HistoryScreen() {
   const { byDate, loadKindnesses, removeKindness } = useKindnessStore();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [, forceUpdate] = useState({});
 
   useEffect(() => {
+    const unsubscribe = i18n.subscribe(() => forceUpdate({}));
     loadKindnesses();
+    i18n.loadLocale();
+    return unsubscribe;
   }, []);
 
   // 달력 데이터 생성
@@ -50,6 +62,7 @@ export default function HistoryScreen() {
 
   const calendarDays = generateCalendarDays();
   const selectedKindnesses = selectedDate ? byDate[selectedDate] || [] : [];
+  const today = getToday();
 
   const handlePrevMonth = () => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
@@ -67,8 +80,31 @@ export default function HistoryScreen() {
   };
 
   const getPresetLabel = (id: string) => {
+    const localeKey = `presets.${id}`;
+    const translated = t(localeKey);
+    if (translated !== localeKey) return translated;
     return PRESET_ACTS.find(p => p.id === id)?.label || id;
   };
+
+  const formatMonthTitle = () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth() + 1;
+    const locale = i18n.getLocale();
+    
+    if (locale === 'ko') {
+      return `${year}년 ${month}월`;
+    } else if (locale === 'zh') {
+      return `${year}年 ${month}月`;
+    } else {
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+      return `${monthNames[month - 1]} ${year}`;
+    }
+  };
+
+  // 현재 언어에 맞는 요일 배열 가져오기
+  const locale = i18n.getLocale();
+  const weekDays = WEEK_DAYS[locale] || WEEK_DAYS['ko'];
 
   return (
     <ScrollView style={styles.container}>
@@ -77,9 +113,7 @@ export default function HistoryScreen() {
         <TouchableOpacity onPress={handlePrevMonth}>
           <Text style={styles.monthNav}>{'<'}</Text>
         </TouchableOpacity>
-        <Text style={styles.monthTitle}>
-          {currentMonth.getFullYear()}년 {currentMonth.getMonth() + 1}월
-        </Text>
+        <Text style={styles.monthTitle}>{formatMonthTitle()}</Text>
         <TouchableOpacity onPress={handleNextMonth}>
           <Text style={styles.monthNav}>{'>'}</Text>
         </TouchableOpacity>
@@ -87,44 +121,58 @@ export default function HistoryScreen() {
 
       {/* 요일 헤더 */}
       <View style={styles.weekHeader}>
-        {['일', '월', '화', '수', '목', '금', '토'].map(day => (
-          <Text key={day} style={styles.weekDay}>{day}</Text>
+        {weekDays.map((day, index) => (
+          <Text key={index} style={styles.weekDay}>{day}</Text>
         ))}
       </View>
 
       {/* 달력 그리드 */}
       <View style={styles.calendar}>
-        {calendarDays.map((day, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[
-              styles.calendarDay,
-              day?.hasKindness && styles.hasKindness,
-              day?.date === selectedDate && styles.selectedDay,
-              day?.date === getToday() && styles.today,
-            ]}
-            onPress={() => day?.hasKindness && setSelectedDate(day.date)}
-            disabled={!day || !day.hasKindness}
-          >
-            {day && (
-              <>
-                <Text style={[
-                  styles.dayNumber,
-                  day.hasKindness && styles.hasKindnessText,
-                ]}>
-                  {day.day}
-                </Text>
-                {day.hasKindness && <Text style={styles.kindnessIcon}>🌼</Text>}
-              </>
-            )}
-          </TouchableOpacity>
-        ))}
+        {calendarDays.map((day, index) => {
+          const isToday = day?.date === today;
+          const isSelected = day?.date === selectedDate;
+          
+          return (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.calendarDay,
+                day?.hasKindness && styles.hasKindness,
+                isSelected && styles.selectedDay,
+                isToday && styles.today,
+              ]}
+              onPress={() => day?.hasKindness && setSelectedDate(day.date)}
+              disabled={!day || !day.hasKindness}
+            >
+              {day && (
+                <View style={styles.dayContent}>
+                  <Text style={[
+                    styles.dayNumber,
+                    day.hasKindness && styles.hasKindnessText,
+                    isSelected && styles.selectedDayText,
+                  ]}>
+                    {day.day}
+                  </Text>
+                  {day.hasKindness && (
+                    <Image
+                      source={require('../../assets/images/flower.png')}
+                      style={[
+                        styles.kindnessIcon,
+                        isSelected && styles.kindnessIconSelected,
+                      ]}
+                    />
+                  )}
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* 선택한 날짜의 기록 */}
       {selectedDate && selectedKindnesses.length > 0 && (
         <View style={styles.kindnessList}>
-          <Text style={styles.listTitle}>{selectedDate}의 기록</Text>
+          <Text style={styles.listTitle}>{selectedDate}{t('history.recordOf')}</Text>
           {selectedKindnesses.map(kindness => (
             <View key={kindness.id} style={styles.kindnessItem}>
               {kindness.text && (
@@ -143,7 +191,7 @@ export default function HistoryScreen() {
                 style={styles.deleteButton}
                 onPress={() => handleDeleteKindness(selectedDate, kindness.id)}
               >
-                <Text style={styles.deleteText}>삭제</Text>
+                <Text style={styles.deleteText}>{t('history.delete')}</Text>
               </TouchableOpacity>
             </View>
           ))}
@@ -198,6 +246,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  dayContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+  },
   dayNumber: {
     fontSize: 16,
     color: '#1F2937',
@@ -209,12 +262,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   kindnessIcon: {
-    fontSize: 10,
-    position: 'absolute',
-    bottom: 2,
+    width: 10,
+    height: 10,
+    marginTop: 0,
+    resizeMode: 'contain',
+  },
+  kindnessIconSelected: {
+    opacity: 0.8,
   },
   selectedDay: {
     backgroundColor: '#FF8A65',
+  },
+  selectedDayText: {
+    color: '#FFFFFF',
   },
   today: {
     borderColor: '#FF8A65',
@@ -256,6 +316,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     fontSize: 12,
+    overflow: 'hidden',
   },
   deleteButton: {
     alignSelf: 'flex-end',

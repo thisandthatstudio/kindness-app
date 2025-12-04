@@ -1,0 +1,22 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# VCS
+.git/
+.gitignore
+
+# local caches
+node_modules/
+.expo/
+dist/
+build/
+.expo-shared/
+npm-debug.log*
+yarn-error.log*
+
+# misc
+*.tmp
+*.lock

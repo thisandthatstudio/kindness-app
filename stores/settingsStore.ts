@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PRESET_ACTS } from '../lib/presets/kindness';
 
 type CustomPreset = {
   id: string;

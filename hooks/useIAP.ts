@@ -1,174 +1,218 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { t } from '../lib/i18n';
 
-// 인앱 구매 상품 정의
+// Try to import expo-iap, but handle gracefully if not available
+let useExpoIAP: any = null;
+let isIAPAvailable = false;
+
+try {
+  const expoIap = require('expo-iap');
+  useExpoIAP = expoIap.useIAP;
+  isIAPAvailable = true;
+} catch (e) {
+  console.log('expo-iap not available (Expo Go environment)');
+  isIAPAvailable = false;
+}
+
+/**
+ * 실제 스토어에 등록해야 하는 상품 ID
+ * iOS: App Store Connect의 In-App Purchase Product ID
+ * Android: Google Play Console의 Product ID
+ */
 export const IAP_PRODUCTS = {
-  COFFEE_SMALL: Platform.select({
-    ios: 'com.yourcompany.kindnessapp.coffee.small',
-    android: 'coffee_small',
+  COFFEE: Platform.select({
+    ios: 'com.thisandthatstudio.kindnessapp.coffee.1900',
+    android: 'coffee_1900',
   }) || '',
-  COFFEE_MEDIUM: Platform.select({
-    ios: 'com.yourcompany.kindnessapp.coffee.medium',
-    android: 'coffee_medium',
+  MEAL: Platform.select({
+    ios: 'com.thisandthatstudio.kindnessapp.meal.6900',
+    android: 'meal_6900',
   }) || '',
-  MEAL_SMALL: Platform.select({
-    ios: 'com.yourcompany.kindnessapp.meal.small',
-    android: 'meal_small',
-  }) || '',
-};
+} as const;
 
-export const PRODUCT_DETAILS = {
-  [IAP_PRODUCTS.COFFEE_SMALL]: {
-    title: '커피 한 잔 ☕',
-    description: '개발자에게 커피 한 잔 사주기',
-    price: '₩1,100',
+/**
+ * 로컬에서 쓰는 메타(표시용). 실제 가격은 스토어에서 가져온 displayPrice로 노출.
+ */
+export const PRODUCT_DETAILS: Record<string, { title: string; description: string; fallbackPrice: string }> = {
+  [IAP_PRODUCTS.COFFEE]: {
+    title: 'settings.coffeeTitle',
+    description: 'settings.coffeeDesc',
+    fallbackPrice: '₩1,900',
   },
-  [IAP_PRODUCTS.COFFEE_MEDIUM]: {
-    title: '커피 두 잔 ☕☕',
-    description: '개발자에게 커피 두 잔 사주기',
-    price: '₩2,200',
-  },
-  [IAP_PRODUCTS.MEAL_SMALL]: {
-    title: '따뜻한 밥 한 끼 🍚',
-    description: '개발자에게 밥 한 끼 사주기',
-    price: '₩5,500',
+  [IAP_PRODUCTS.MEAL]: {
+    title: 'settings.mealTitle',
+    description: 'settings.mealDesc',
+    fallbackPrice: '₩6,900',
   },
 };
 
-// 모킹된 IAP Hook (실제 구매 없이 시뮬레이션)
+const STORAGE_KEY = 'purchaseHistory';
+
+// Mock hook for when expo-iap is not available
+function useMockIAP() {
+  return {
+    connected: false,
+    products: [],
+    fetchProducts: async () => [],
+    requestPurchase: async () => {},
+    finishTransaction: async () => {},
+    restorePurchases: async () => [],
+  };
+}
+
 export default function useIAP() {
-  const [products, setProducts] = useState<any[]>([]);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [purchaseHistory, setPurchaseHistory] = useState<string[]>([]);
-  const [isConnected, setIsConnected] = useState(true); // 모킹이므로 항상 true
+  const [iapError, setIapError] = useState<string | null>(null);
 
+  // Use real IAP hook or mock based on availability
+  const iapHook = isIAPAvailable && useExpoIAP ? useExpoIAP : useMockIAP;
+  
+  let iapResult: any = { connected: false, products: [] };
+  
+  try {
+    if (isIAPAvailable && useExpoIAP) {
+      iapResult = useExpoIAP({
+        onPurchaseSuccess: async (purchase: any) => {
+          try {
+            const ok = true; // 데모: 서버 검증 생략
+
+            if (!ok) {
+              Alert.alert(t('alerts.purchaseFailed'), t('alerts.purchaseCancelled'));
+              setIsPurchasing(false);
+              return;
+            }
+
+            await iapResult.finishTransaction?.({
+              purchase,
+              isConsumable: true,
+            });
+
+            const pid = purchase?.productId || purchase?.productIds?.[0];
+            if (pid) {
+              const newHistory = [...purchaseHistory, pid];
+              setPurchaseHistory(newHistory);
+              await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
+            }
+
+            Alert.alert(t('alerts.thankYou'), t('alerts.purchaseSuccess'));
+          } catch (err) {
+            console.error('finishTransaction error:', err);
+            Alert.alert(t('alerts.purchaseFailed'), t('alerts.purchaseCancelled'));
+          } finally {
+            setIsPurchasing(false);
+          }
+        },
+        onPurchaseError: (error: any) => {
+          console.error('purchase error:', error);
+          Alert.alert(t('alerts.purchaseFailed'), t('alerts.purchaseCancelled'));
+          setIsPurchasing(false);
+        },
+      });
+    }
+  } catch (e) {
+    console.log('IAP hook initialization failed:', e);
+    setIapError('IAP not available');
+  }
+
+  const { connected = false, products = [], fetchProducts, requestPurchase, finishTransaction, restorePurchases: restoreFromStore } = iapResult;
+
+  // 연결되면 스토어에서 상품 정보를 가져옴
   useEffect(() => {
-    initializeIAP();
-    loadPurchaseHistory();
+    if (!connected || !fetchProducts) return;
+    const skus = Object.values(IAP_PRODUCTS).filter(Boolean);
+    fetchProducts({ skus, type: 'in-app' as any }).catch((e: any) =>
+      console.error('fetchProducts error:', e),
+    );
+  }, [connected]);
+
+  // 로컬 구매 내역 로드
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(STORAGE_KEY);
+        if (saved) setPurchaseHistory(JSON.parse(saved));
+      } catch (e) {
+        console.error('load purchaseHistory error:', e);
+      }
+    })();
   }, []);
 
-  const initializeIAP = async () => {
-    try {
-      // 모킹: 상품 정보 시뮬레이션
-      const mockProducts = Object.keys(IAP_PRODUCTS).map(key => ({
-        productId: IAP_PRODUCTS[key as keyof typeof IAP_PRODUCTS],
-        ...PRODUCT_DETAILS[IAP_PRODUCTS[key as keyof typeof IAP_PRODUCTS]],
-      }));
-      
-      setProducts(mockProducts);
-      setIsConnected(true);
-      
-      console.log('IAP 모킹 모드: 실제 결제 없이 시뮬레이션됩니다.');
-    } catch (error) {
-      console.error('IAP 초기화 실패:', error);
-      setIsConnected(false);
-    }
-  };
+  const productsById = useMemo(() => {
+    const map: Record<string, any> = {};
+    for (const p of products ?? []) map[p.id] = p;
+    return map;
+  }, [products]);
 
-  const loadPurchaseHistory = async () => {
-    try {
-      const history = await AsyncStorage.getItem('purchaseHistory');
-      if (history) {
-        setPurchaseHistory(JSON.parse(history));
-      }
-    } catch (error) {
-      console.error('구매 내역 로드 실패:', error);
-    }
-  };
-
-  const savePurchaseHistory = async (productId: string) => {
-    try {
-      const newHistory = [...purchaseHistory, productId];
-      setPurchaseHistory(newHistory);
-      await AsyncStorage.setItem('purchaseHistory', JSON.stringify(newHistory));
-    } catch (error) {
-      console.error('구매 내역 저장 실패:', error);
-    }
-  };
-
-  const showThankYouMessage = (productId: string) => {
-    const product = PRODUCT_DETAILS[productId];
-    const messages = [
-      '정말 감사합니다! 💖',
-      '당신의 마음이 따뜻하네요! 🌟',
-      '덕분에 더 열심히 개발하겠습니다! 💪',
-      '당신은 최고예요! 🎉',
-    ];
-    const randomMessage = messages[Math.floor(Math.random() * messages.length)];
-    
-    Alert.alert(
-      '감사합니다! 🙏',
-      `${product.title}를 후원해주셔서 감사합니다!\n\n${randomMessage}\n\n(테스트 모드: 실제 결제되지 않음)`,
-      [{ text: '확인', style: 'default' }]
-    );
-  };
+  const isConnected = isIAPAvailable && connected;
 
   const purchaseProduct = async (productId: string) => {
+    if (!isIAPAvailable) {
+      Alert.alert(t('settings.title'), t('settings.purchaseNotAvailable'));
+      return;
+    }
+    
     if (!isConnected) {
-      Alert.alert('연결 오류', '스토어에 연결할 수 없습니다.');
+      Alert.alert(t('alerts.connectionError'), t('alerts.storeConnectionError'));
       return;
     }
-
-    if (isPurchasing) {
-      return;
-    }
+    if (isPurchasing) return;
 
     setIsPurchasing(true);
-    
-    // 모킹: 구매 프로세스 시뮬레이션
-    Alert.alert(
-      '구매 확인',
-      `${PRODUCT_DETAILS[productId].title}\n${PRODUCT_DETAILS[productId].price}\n\n(테스트 모드: 실제 결제되지 않음)`,
-      [
-        {
-          text: '취소',
-          style: 'cancel',
-          onPress: () => setIsPurchasing(false),
+    try {
+      await requestPurchase?.({
+        request: {
+          ios: { sku: productId },
+          android: { skus: [productId] },
         },
-        {
-          text: '구매',
-          onPress: async () => {
-            // 2초 후 구매 완료 시뮬레이션
-            setTimeout(async () => {
-              await savePurchaseHistory(productId);
-              showThankYouMessage(productId);
-              setIsPurchasing(false);
-            }, 1000);
-          },
-        },
-      ]
-    );
+      });
+    } catch (error) {
+      console.error('requestPurchase error:', error);
+      Alert.alert(t('alerts.purchaseFailed'), t('alerts.purchaseCancelled'));
+      setIsPurchasing(false);
+    }
   };
 
   const restorePurchases = async () => {
-    Alert.alert(
-      '구매 복원',
-      '테스트 모드에서는 구매 복원이 시뮬레이션됩니다.',
-      [
-        {
-          text: '확인',
-          onPress: async () => {
-            // 모킹: 랜덤하게 구매 내역 복원 시뮬레이션
-            if (Math.random() > 0.5) {
-              const mockHistory = [IAP_PRODUCTS.COFFEE_SMALL];
-              setPurchaseHistory(mockHistory);
-              await AsyncStorage.setItem('purchaseHistory', JSON.stringify(mockHistory));
-              Alert.alert('복원 완료', '구매 내역이 복원되었습니다. (테스트)');
-            } else {
-              Alert.alert('복원 실패', '복원할 구매 내역이 없습니다.');
-            }
-          },
-        },
-      ]
-    );
+    if (!isIAPAvailable || !restoreFromStore) {
+      Alert.alert(t('settings.title'), t('settings.purchaseNotAvailable'));
+      return;
+    }
+    
+    try {
+      const restored = await restoreFromStore();
+      const ids: string[] = [];
+      for (const r of restored ?? []) {
+        const pid = (r as any)?.productId || (r as any)?.productIds?.[0];
+        if (pid) ids.push(pid);
+      }
+      if (ids.length) {
+        const merged = Array.from(new Set([...purchaseHistory, ...ids]));
+        setPurchaseHistory(merged);
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        Alert.alert(t('alerts.restoreComplete'), t('alerts.restoreSuccess'));
+      } else {
+        Alert.alert(t('alerts.restoreResult'), t('alerts.noRestoreData'));
+      }
+    } catch (e) {
+      console.error('restorePurchases error:', e);
+      Alert.alert(t('alerts.restoreFailed'), t('alerts.restoreError'));
+    }
   };
 
   return {
-    products,
-    isPurchasing,
-    purchaseHistory,
+    // 스토어 상태/정보
     isConnected,
+    isIAPAvailable,
+    products,
+    productsById,
+    // 진행 상태
+    isPurchasing,
+    // 간단한 로컬 히스토리 (후원자 뱃지 판단 등에 활용)
+    purchaseHistory,
+    // 액션
     purchaseProduct,
     restorePurchases,
   };

@@ -1,30 +1,32 @@
 import React, { useRef } from 'react';
-import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Alert, TouchableOpacity, Image } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';  // legacy API 사용
+import * as FileSystem from 'expo-file-system/legacy';
+import { t } from '../../lib/i18n';
+import useKindnessStore from '../../stores/kindnessStore';
 
 interface ShareCardProps {
   date: string;
   text: string;
-  streak: number;
   presets?: string[];
 }
 
-export default function ShareCard({ date, text, streak, presets = [] }: ShareCardProps) {
+export default function ShareCard({ date, text, presets = [] }: ShareCardProps) {
   const viewShotRef = useRef<ViewShot>(null);
+  
+  // Store에서 직접 최신 streak 가져오기
+  const streak = useKindnessStore(state => state.streak);
 
   const captureAndShare = async () => {
     try {
       if (!viewShotRef.current || !viewShotRef.current.capture) {
-        Alert.alert('오류', '캡처 기능을 사용할 수 없습니다.');
+        Alert.alert(t('share.error'), t('share.captureError'));
         return;
       }
       
-      // ViewShot으로 이미지 캡처
       const uri = await viewShotRef.current.capture();
       
-      // 파일을 캐시 디렉토리로 복사
       const filename = `kindness-card-${Date.now()}.png`;
       const fileUri = `${FileSystem.cacheDirectory}${filename}`;
       
@@ -33,95 +35,112 @@ export default function ShareCard({ date, text, streak, presets = [] }: ShareCar
         to: fileUri
       });
       
-      // 공유 가능 여부 확인
       const isAvailable = await Sharing.isAvailableAsync();
       
       if (isAvailable) {
         await Sharing.shareAsync(fileUri, {
           mimeType: 'image/png',
-          dialogTitle: '차카게살자 - 오늘의 선행',
+          dialogTitle: t('share.title'),
         });
         
-        // 공유 후 임시 파일 삭제
         try {
           await FileSystem.deleteAsync(fileUri, { idempotent: true });
         } catch (deleteError) {
           console.log('임시 파일 삭제 실패:', deleteError);
         }
       } else {
-        Alert.alert('알림', '이 기기에서는 공유 기능을 사용할 수 없습니다.');
+        Alert.alert(t('share.error'), t('share.shareNotAvailable'));
       }
     } catch (error) {
       console.error('공유 실패:', error);
-      Alert.alert('오류', '이미지 생성 또는 공유에 실패했습니다.');
+      Alert.alert(t('share.error'), t('share.shareError'));
     }
   };
 
   const formatDateKorean = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
+    const d = new Date(dateStr);
+    return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
   };
 
   return (
     <View style={styles.container}>
+      {/* ViewShot 영역 - 흰색 배경과 패딩으로 테두리 포함 */}
       <ViewShot
         ref={viewShotRef}
-        style={styles.card}
+        style={styles.captureArea}
         options={{ 
           format: 'png', 
           quality: 1,
           result: 'tmpfile' 
         }}
       >
-        {/* 카드 헤더 */}
-        <View style={styles.header}>
-          <Text style={styles.appTitle}>🌼 차카게살자</Text>
-          <Text style={styles.date}>{formatDateKorean(date)}</Text>
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakText}>🔥 연속 {streak}일</Text>
-          </View>
-        </View>
-
-        {/* 졸라맨 그림 영역 */}
-        <View style={styles.illustrationContainer}>
-          <View style={styles.stickmanWrapper}>
-            <Text style={styles.stickman}>😊</Text>
-            <View style={styles.body}>
-              <Text style={styles.bodyText}>|</Text>
-              <Text style={styles.arms}>╱ ╲</Text>
-              <Text style={styles.legs}>╱ ╲</Text>
-            </View>
-          </View>
-          <Text style={styles.flower}>🌼</Text>
-        </View>
-
-        {/* 선행 텍스트 */}
-        <View style={styles.content}>
-          <Text style={styles.quote}>"</Text>
-          <Text style={styles.mainText}>{text || '오늘도 선행을 실천했어요!'}</Text>
-          <Text style={styles.quote}>"</Text>
-          
-          {presets && presets.length > 0 && (
-            <View style={styles.presetContainer}>
-              {presets.map((preset, index) => (
-                <Text key={index} style={styles.presetTag}>
-                  #{preset}
+        {/* 흰색 배경 래퍼 */}
+        <View style={styles.cardWrapper}>
+          {/* 실제 카드 */}
+          <View style={styles.card}>
+            {/* 카드 헤더 */}
+            <View style={styles.header}>
+              <View style={styles.titleRow}>
+                <Image
+                  source={require('../../assets/images/flower.png')}
+                  style={styles.titleIcon}
+                />
+                <Text style={styles.appTitle}>{t('share.title')}</Text>
+              </View>
+              <Text style={styles.date}>{formatDateKorean(date)}</Text>
+              <View style={styles.streakBadge}>
+                <Image
+                  source={require('../../assets/images/fire.png')}
+                  style={styles.streakIcon}
+                />
+                <Text style={styles.streakText}>
+                  {t('today.streak')} {streak}{t('today.days')}
                 </Text>
-              ))}
+              </View>
             </View>
-          )}
-        </View>
 
-        {/* 하단 메시지 */}
-        <View style={styles.footer}>
-          <Text style={styles.footerMessage}>작은 친절이 큰 변화를 만들어요</Text>
-          <Text style={styles.watermark}>차카게살자 - One act of kindness a day</Text>
+            {/* 카드 이미지 영역 */}
+            <View style={styles.illustrationContainer}>
+              <Image
+                source={require('../../assets/images/card.png')}
+                style={styles.cardImage}
+                resizeMode="contain"
+              />
+            </View>
+
+            {/* 선행 텍스트 */}
+            <View style={styles.content}>
+              <Text style={styles.quote}>"</Text>
+              <Text style={styles.mainText}>{text || t('share.practiced')}</Text>
+              <Text style={styles.quoteEnd}>"</Text>
+              
+              {presets && presets.length > 0 && (
+                <View style={styles.presetContainer}>
+                  {presets.map((preset, index) => (
+                    <Text key={index} style={styles.presetTag}>
+                      #{preset}
+                    </Text>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* 하단 메시지 */}
+            <View style={styles.footer}>
+              <Text style={styles.footerMessage}>{t('share.footerMessage')}</Text>
+              <Text style={styles.watermark}>{t('share.watermark')}</Text>
+            </View>
+          </View>
         </View>
       </ViewShot>
 
       {/* 공유 버튼 */}
       <TouchableOpacity style={styles.shareButton} onPress={captureAndShare}>
-        <Text style={styles.shareButtonText}>📤 공유하기</Text>
+        <Image
+          source={require('../../assets/images/share.png')}
+          style={styles.shareButtonIcon}
+        />
+        <Text style={styles.shareButtonText}>{t('share.shareButton')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -131,10 +150,17 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
   },
+  captureArea: {
+    margin: 10,
+  },
+  cardWrapper: {
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 20,
+  },
   card: {
     backgroundColor: '#FFFEF7',
     padding: 30,
-    margin: 20,
     borderRadius: 16,
     borderWidth: 2,
     borderColor: '#FFE4CC',
@@ -148,11 +174,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  titleIcon: {
+    width: 24,
+    height: 24,
+    marginRight: 8,
+  },
   appTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 8,
   },
   date: {
     fontSize: 14,
@@ -160,6 +195,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFF4ED',
     paddingHorizontal: 16,
     paddingVertical: 6,
@@ -167,61 +204,50 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FFD6B8',
   },
+  streakIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 6,
+  },
   streakText: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#FF8A65',
   },
   illustrationContainer: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 30,
+    marginVertical: 20,
   },
-  stickmanWrapper: {
-    alignItems: 'center',
-  },
-  stickman: {
-    fontSize: 60,
-  },
-  body: {
-    alignItems: 'center',
-    marginTop: -15,
-  },
-  bodyText: {
-    fontSize: 20,
-    color: '#4B5563',
-  },
-  arms: {
-    fontSize: 20,
-    color: '#4B5563',
-    marginTop: -10,
-  },
-  legs: {
-    fontSize: 20,
-    color: '#4B5563',
-    marginTop: -5,
-  },
-  flower: {
-    fontSize: 50,
-    marginLeft: 20,
+  cardImage: {
+    width: 150,
+    height: 150,
   },
   content: {
     marginVertical: 20,
     alignItems: 'center',
+    position: 'relative',
+    paddingHorizontal: 20,
   },
   quote: {
-    fontSize: 30,
+    fontSize: 40,
     color: '#E5E7EB',
     position: 'absolute',
-    top: -10,
+    top: -20,
+    left: 0,
+  },
+  quoteEnd: {
+    fontSize: 40,
+    color: '#E5E7EB',
+    position: 'absolute',
+    bottom: -20,
+    right: 0,
   },
   mainText: {
     fontSize: 18,
     textAlign: 'center',
     color: '#1F2937',
     lineHeight: 28,
-    paddingHorizontal: 20,
     fontStyle: 'italic',
   },
   presetContainer: {
@@ -238,6 +264,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+    overflow: 'hidden',
   },
   footer: {
     alignItems: 'center',
@@ -264,6 +291,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 20,
     marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  shareButtonIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 8,
   },
   shareButtonText: {
     fontSize: 18,

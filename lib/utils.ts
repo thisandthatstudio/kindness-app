@@ -1,16 +1,20 @@
-// 날짜 포맷팅
+// 날짜 포맷팅 (로컬 시간대 기준)
 export const formatDate = (date: Date): string => {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
-// 오늘 날짜 가져오기
+// 오늘 날짜 가져오기 (로컬 시간대 기준)
 export const getToday = (): string => {
   return formatDate(new Date());
 };
 
 // 날짜 문자열을 Date 객체로
 export const parseDate = (dateStr: string): Date => {
-  return new Date(dateStr + 'T00:00:00');
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
 };
 
 // 두 날짜 사이의 일수 차이
@@ -42,7 +46,7 @@ export const calculateStreak = (dates: string[]): number => {
   }
   
   let streak = 0;
-  let currentDate = new Date(startDate);
+  let currentDate = parseDate(startDate);
   
   for (const date of sortedDates) {
     const expected = formatDate(currentDate);

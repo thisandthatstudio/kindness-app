@@ -9,6 +9,7 @@ import {
   Alert,
   Animated,
   Modal,
+  Image,
 } from 'react-native';
 import useKindnessStore from '../../stores/kindnessStore';
 import useSettingsStore from '../../stores/settingsStore';
@@ -17,6 +18,7 @@ import { initDatabase } from '../../lib/db/database';
 import { getRandomMessage, getStreakMessage } from '../../lib/messages';
 import { getToday } from '../../lib/utils';
 import ShareCard from '../../components/share/ShareCard';
+import i18n, { t } from '../../lib/i18n';
 
 export default function TodayScreen() {
   const [text, setText] = useState('');
@@ -25,6 +27,7 @@ export default function TodayScreen() {
   const [encouragementMessage, setEncouragementMessage] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
   const [lastKindness, setLastKindness] = useState<any>(null);
+  const [, forceUpdate] = useState({});
   
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -33,10 +36,13 @@ export default function TodayScreen() {
   const { customPresets, hiddenPresetIds, loadSettings } = useSettingsStore();
 
   useEffect(() => {
+    const unsubscribe = i18n.subscribe(() => forceUpdate({}));
     initDatabase().then(() => {
       loadKindnesses();
       loadSettings();
+      i18n.loadLocale();
     });
+    return unsubscribe;
   }, []);
 
   // 보여질 프리셋 계산
@@ -44,6 +50,13 @@ export default function TodayScreen() {
   const visiblePresets = allPresets.filter(
     preset => !hiddenPresetIds.includes(preset.id)
   );
+
+  // 프리셋 라벨 가져오기 (i18n 지원)
+  const getPresetLabel = (preset: { id: string; label: string }) => {
+    const localeKey = `presets.${preset.id}`;
+    const translated = t(localeKey);
+    return translated !== localeKey ? translated : preset.label;
+  };
 
   const togglePreset = (id: string) => {
     Animated.sequence([
@@ -95,7 +108,7 @@ export default function TodayScreen() {
 
   const handleRecord = async () => {
     if (!text && selectedPresets.length === 0) {
-      Alert.alert('알림', '오늘의 선행을 입력해주세요!');
+      Alert.alert(t('today.alert'), t('today.pleaseEnter'));
       return;
     }
 
@@ -108,16 +121,23 @@ export default function TodayScreen() {
     
     await addKindness(newKindness);
     
+    // addKindness 후 loadKindnesses가 호출되어 streak이 업데이트됨
+    // 잠시 대기 후 최신 streak을 사용
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // 최신 streak 가져오기
+    const currentStreak = useKindnessStore.getState().streak;
+    
     setLastKindness({
       ...newKindness,
       presets: selectedPresets.map(id => {
         const preset = allPresets.find(p => p.id === id);
-        return preset?.label || id;
+        return preset ? getPresetLabel(preset) : id;
       }),
     });
 
-    // 연속일 메시지 체크
-    const streakMessage = getStreakMessage(streak + 1);
+    // 연속일 메시지 체크 (이미 업데이트된 streak 사용)
+    const streakMessage = getStreakMessage(currentStreak);
     const message = streakMessage || getRandomMessage();
     showEncouragement(message);
 
@@ -127,7 +147,7 @@ export default function TodayScreen() {
 
   const openShareModal = () => {
     if (!lastKindness && !todayKindness) {
-      Alert.alert('알림', '먼저 오늘의 선행을 기록해주세요!');
+      Alert.alert(t('today.alert'), t('today.recordFirst'));
       return;
     }
     setShowShareModal(true);
@@ -135,10 +155,10 @@ export default function TodayScreen() {
 
   const todayData = byDate[getToday()]?.[0];
   const shareData = lastKindness || (todayData && {
-    text: todayData.text || '오늘도 선행을 실천했어요!',
+    text: todayData.text || t('share.practiced'),
     presets: todayData.presetIds?.map(id => {
       const preset = allPresets.find(p => p.id === id);
-      return preset?.label || id;
+      return preset ? getPresetLabel(preset) : id;
     }) || [],
   });
 
@@ -146,16 +166,28 @@ export default function TodayScreen() {
     <>
       <ScrollView style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.title}>🌼 차카게살자</Text>
-          <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-            <Text style={styles.streak}>🔥 연속 {streak}일</Text>
+          <View style={styles.titleRow}>
+            <Image
+              source={require('../../assets/images/flower.png')}
+              style={styles.titleIcon}
+            />
+            <Text style={styles.title}>{t('today.title')}</Text>
+          </View>
+          <Animated.View style={[styles.streakRow, { transform: [{ scale: scaleAnim }] }]}>
+            <Image
+              source={require('../../assets/images/fire.png')}
+              style={styles.streakIcon}
+            />
+            <Text style={styles.streak}>
+              {t('today.streak')} {streak}{t('today.days')}
+            </Text>
           </Animated.View>
         </View>
 
         <View style={styles.inputSection}>
           <TextInput
             style={styles.input}
-            placeholder="오늘의 선행을 입력하세요"
+            placeholder={t('today.inputPlaceholder')}
             value={text}
             onChangeText={setText}
             multiline
@@ -177,7 +209,7 @@ export default function TodayScreen() {
                   styles.chipText,
                   selectedPresets.includes(preset.id) && styles.chipTextSelected
                 ]}>
-                  {preset.label}
+                  {getPresetLabel(preset)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -188,9 +220,17 @@ export default function TodayScreen() {
             onPress={handleRecord}
             disabled={!!todayKindness}
           >
-            <Text style={styles.buttonText}>
-              {todayKindness ? '오늘 이미 기록했어요! ✅' : '기록하기'}
-            </Text>
+            {todayKindness ? (
+              <View style={styles.buttonContent}>
+                <Text style={styles.buttonText}>{t('today.alreadyRecorded')}</Text>
+                <Image
+                  source={require('../../assets/images/check.png')}
+                  style={styles.buttonIconRight}
+                />
+              </View>
+            ) : (
+              <Text style={styles.buttonText}>{t('today.record')}</Text>
+            )}
           </TouchableOpacity>
 
           {(lastKindness || todayKindness) && (
@@ -198,7 +238,11 @@ export default function TodayScreen() {
               style={styles.shareButton}
               onPress={openShareModal}
             >
-              <Text style={styles.shareButtonText}>📤 공유 카드 만들기</Text>
+              <Image
+                source={require('../../assets/images/share.png')}
+                style={styles.shareButtonIcon}
+              />
+              <Text style={styles.shareButtonText}>{t('today.shareCard')}</Text>
             </TouchableOpacity>
           )}
 
@@ -239,8 +283,7 @@ export default function TodayScreen() {
             {shareData && (
               <ShareCard
                 date={getToday()}
-                text={shareData.text || '오늘도 선행을 실천했어요!'}
-                streak={streak}
+                text={shareData.text || t('share.practiced')}
                 presets={shareData.presets}
               />
             )}
@@ -260,16 +303,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 30,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  titleIcon: {
+    width: 28,
+    height: 28,
+    marginRight: 8,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1F2937',
   },
+  streakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  streakIcon: {
+    width: 32,
+    height: 32,
+    marginRight: 8,
+  },
   streak: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#FF8A65',
-    marginTop: 10,
   },
   inputSection: {
     padding: 20,
@@ -316,6 +377,15 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     backgroundColor: '#66BB6A',
   },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  buttonIconRight: {
+    width: 20,
+    height: 20,
+    marginLeft: 8,
+  },
   buttonText: {
     color: '#FFFFFF',
     fontSize: 16,
@@ -329,6 +399,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  shareButtonIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 8,
   },
   shareButtonText: {
     color: '#FF8A65',
